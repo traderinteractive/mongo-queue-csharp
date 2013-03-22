@@ -30,13 +30,23 @@ queue.Ack(message);
 
 ##Build
 
-To add the library as a local, per-project dependency make sure [xbuild](http://www.mono-project.com/Microsoft.Build) are in your PATH and run:
+For linux make sure [xbuild](http://www.mono-project.com/Microsoft.Build) is installed and on your PATH.
+For windows make sure [MSBuild](http://msdn.microsoft.com/en-us/library/dd393574.aspx) is installed and on your PATH.
+Make sure you are in the repository root.
+
+For linux run:
 
 ```bash
 xbuild DominionEnterprises.Mongo/DominionEnterprises.Mongo.csproj
 ```
 
-and use the resulting `DominionEnterprises.Mongo/bin/Debug/DominionEnterprises.Mongo.dll` in your project.
+For windows run:
+
+```bash
+MSBuild DominionEnterprises.Mongo/DominionEnterprises.Mongo.csproj
+```
+
+and use the resulting `DominionEnterprises.Mongo/bin/Debug/DominionEnterprises.Mongo.dll` as a reference in your project.
 
 ##Documentation
 
@@ -52,10 +62,25 @@ Developers may be contacted at:
 
 ##Tests
 
-With a checkout of the code make sure [xbuild](http://www.mono-project.com/Microsoft.Build)
-and [nunit-console](http://www.nunit.org/index.php?p=nunit-console&r=2.2.10) is in your PATH and run:
+For linux make sure [xbuild](http://www.mono-project.com/Microsoft.Build) is installed and in your PATH.
+For windows make sure [MSBuild](http://msdn.microsoft.com/en-us/library/dd393574.aspx) is installed and in your PATH.
+For both make sure [nunit-console](http://www.nunit.org/index.php?p=nunit-console&r=2.2.10) is installed and in your PATH.
+Make sure you are in the repository root.
+
+For linux run:
 
 ```bash
 xbuild DominionEnterprises.Mongo.Tests/DominionEnterprises.Mongo.Tests.csproj
+```
+
+For windows run:
+
+```bash
+MSBuild DominionEnterprises.Mongo.Tests/DominionEnterprises.Mongo.Tests.csproj
+```
+
+For both run:
+
+```bash
 nunit-console DominionEnterprises.Mongo.Tests/bin/Debug/DominionEnterprises.Mongo.Tests.dll
 ```
