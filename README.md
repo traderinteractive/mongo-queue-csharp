@@ -56,7 +56,6 @@ Found in the [source](DominionEnterprises.Mongo/Queue.cs) itself, take a look!
 
 Developers may be contacted at:
 
- * [Email](mailto:tol_igroup@dominionenterprises.com)
  * [Pull Requests](https://github.com/dominionenterprises/mongo-queue-php/pulls)
  * [Issues](https://github.com/dominionenterprises/mongo-queue-php/issues)
 
