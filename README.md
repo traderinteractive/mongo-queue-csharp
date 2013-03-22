@@ -62,6 +62,7 @@ Developers may be contacted at:
 
 ##Tests
 
+Install and start [mongodb](http://www.mongodb.org).
 For linux make sure [xbuild](http://www.mono-project.com/Microsoft.Build) is installed and in your PATH.
 For windows make sure [MSBuild](http://msdn.microsoft.com/en-us/library/dd393574.aspx) is installed and in your PATH.
 For both make sure [nunit-console](http://www.nunit.org/index.php?p=nunit-console&r=2.2.10) is installed and in your PATH.
