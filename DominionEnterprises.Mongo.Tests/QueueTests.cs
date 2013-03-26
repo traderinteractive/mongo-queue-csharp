@@ -58,13 +58,13 @@ namespace DominionEnterprises.Mongo.Tests
 
             Assert.AreEqual(4, collection.GetIndexes().Count);
 
-            var expectedOne = new IndexKeysDocument { { "running", 1 }, { "payload.type", 1 }, { "priority", 1 }, { "_id", 1 }, { "payload.boo", -1 }, { "earliestGet", 1 } };
+            var expectedOne = new IndexKeysDocument { { "running", 1 }, { "payload.type", 1 }, { "priority", 1 }, { "created", 1 }, { "payload.boo", -1 }, { "earliestGet", 1 } };
             Assert.AreEqual(expectedOne, collection.GetIndexes()[1].Key);
 
             var expectedTwo = new IndexKeysDocument { { "running", 1 }, { "resetTimestamp", 1 } };
             Assert.AreEqual(expectedTwo, collection.GetIndexes()[2].Key);
 
-            var expectedThree = new IndexKeysDocument { { "running", 1 }, { "payload.another.sub", 1 }, { "priority", 1 }, { "_id", 1 }, { "earliestGet", 1 } };
+            var expectedThree = new IndexKeysDocument { { "running", 1 }, { "payload.another.sub", 1 }, { "priority", 1 }, { "created", 1 }, { "earliestGet", 1 } };
             Assert.AreEqual(expectedThree, collection.GetIndexes()[3].Key);
         }
 
@@ -478,14 +478,23 @@ namespace DominionEnterprises.Mongo.Tests
 
             var expected = new BsonDocument
             {
+                //_id added below
                 { "payload", payload },
                 { "running", false },
                 { "resetTimestamp", new BsonDateTime(DateTime.MaxValue) },
                 { "earliestGet", new BsonDateTime(now) },
                 { "priority", 0.8 },
+                //created added below
             };
 
             var message = collection.FindOneAs<BsonDocument>();
+
+            var actualCreated = message["created"];
+            expected["created"] = actualCreated;
+            actualCreated = actualCreated.AsDateTime;
+
+            Assert.IsTrue(actualCreated <= DateTime.UtcNow);
+            Assert.IsTrue(actualCreated > DateTime.UtcNow - TimeSpan.FromSeconds(10));
 
             expected.InsertAt(0, new BsonElement("_id", message["_id"]));
             Assert.AreEqual(expected, message);
