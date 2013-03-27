@@ -82,7 +82,7 @@ namespace DominionEnterprises.Mongo
             }
 
             completeIndex.Add("priority", 1);
-            completeIndex.Add("_id", 1);
+            completeIndex.Add("created", 1);
 
             foreach (var field in afterSort)
             {
@@ -184,7 +184,7 @@ namespace DominionEnterprises.Mongo
                 resetTimestamp = resetRunning > TimeSpan.Zero ? DateTime.MaxValue : DateTime.MinValue;
             }
 
-            var sort = new SortByDocument { { "priority", 1 }, { "_id", 1 } };
+            var sort = new SortByDocument { { "priority", 1 }, { "created", 1 } };
             var update = new UpdateDocument("$set", new BsonDocument { { "running", true }, { "resetTimestamp", resetTimestamp } });
             var fields = new FieldsDocument("payload", 1);
 
@@ -327,6 +327,7 @@ namespace DominionEnterprises.Mongo
                 {"resetTimestamp", DateTime.MaxValue},
                 {"earliestGet", earliestGet},
                 {"priority", priority},
+                {"created", DateTime.UtcNow},
             };
 
             //using upsert because if no documents found then the doc was removed (SHOULD ONLY HAPPEN BY SOMEONE MANUALLY) so we can just send
@@ -427,6 +428,7 @@ namespace DominionEnterprises.Mongo
                 {"resetTimestamp", DateTime.MaxValue},
                 {"earliestGet", earliestGet},
                 {"priority", priority},
+                {"created", DateTime.UtcNow},
             };
 
             collection.Insert(message);
