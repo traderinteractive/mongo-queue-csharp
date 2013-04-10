@@ -1,4 +1,5 @@
 #mongo-queue-csharp
+[![Build Status](https://travis-ci.org/dominionenterprises/mongo-queue-csharp.png)](https://travis-ci.org/dominionenterprises/mongo-queue-csharp)
 
 C# message queue using MongoDB as a backend.
 Adheres to the 1.0.0 [specification](https://github.com/dominionenterprises/mongo-queue-specification).
