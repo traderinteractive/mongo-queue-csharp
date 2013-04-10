@@ -457,7 +457,7 @@ namespace DominionEnterprises.Mongo
                 }
             }
 
-            throw new Exception("couldnt create index after 100 attempts");
+            throw new Exception("couldnt create index after 5 attempts");
         }
     }
 }
