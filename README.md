@@ -59,7 +59,7 @@ Developers may be contacted at:
  * [Pull Requests](https://github.com/dominionenterprises/mongo-queue-php/pulls)
  * [Issues](https://github.com/dominionenterprises/mongo-queue-php/issues)
 
-##Tests
+##Project build
 
 Install and start [mongodb](http://www.mongodb.org).
 For linux make sure [xbuild](http://www.mono-project.com/Microsoft.Build) is installed and in your PATH.
@@ -70,17 +70,11 @@ Make sure you are in the repository root.
 For linux run:
 
 ```bash
-xbuild DominionEnterprises.Mongo.Tests/DominionEnterprises.Mongo.Tests.csproj
+sh build.sh
 ```
 
 For windows run:
 
-```bash
-MSBuild DominionEnterprises.Mongo.Tests/DominionEnterprises.Mongo.Tests.csproj
-```
-
-For both run:
-
-```bash
-nunit-console DominionEnterprises.Mongo.Tests/bin/Debug/DominionEnterprises.Mongo.Tests.dll
+```dos
+build.bat
 ```

@@ -3,6 +3,7 @@
     <OutputType>Library</OutputType>
     <AssemblyName>DominionEnterprises.Mongo</AssemblyName>
     <WarningLevel>4</WarningLevel>
+    <DebugSymbols>true</DebugSymbols>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />

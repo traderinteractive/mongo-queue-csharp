@@ -2,6 +2,4 @@ language: c
 services: mongodb
 install:
   - sudo apt-get install mono-devel nunit-console
-script:
-  - xbuild DominionEnterprises.Mongo.Tests/DominionEnterprises.Mongo.Tests.csproj
-  - nunit-console DominionEnterprises.Mongo.Tests/bin/Debug/DominionEnterprises.Mongo.Tests.dll
+script: sh build.sh

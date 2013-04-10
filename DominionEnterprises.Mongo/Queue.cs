@@ -46,7 +46,7 @@ namespace DominionEnterprises.Mongo
         /// </summary>
         public void EnsureGetIndex()
         {
-            EnsureGetIndex(new IndexKeysDocument(), new IndexKeysDocument());
+            EnsureGetIndex(new IndexKeysDocument());
         }
 
         /// <summary>
@@ -86,7 +86,7 @@ namespace DominionEnterprises.Mongo
 
             foreach (var field in afterSort)
             {
-                if (field.Value != 1 && field.Value != -1) throw new ArgumentException("field values must be 1 or -1 for ascending or descending", "afterSort");
+                if (field.Value != -1 && field.Value != 1) throw new ArgumentException("field values must be 1 or -1 for ascending or descending", "afterSort");
                 completeIndex.Add("payload." + field.Name, field.Value);
             }
 
@@ -132,7 +132,7 @@ namespace DominionEnterprises.Mongo
         /// <exception cref="ArgumentNullException">query is null</exception>
         public BsonDocument Get(QueryDocument query, TimeSpan resetRunning)
         {
-            return Get(query, resetRunning, TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(200));
+            return Get(query, resetRunning, TimeSpan.FromSeconds(3));
         }
 
         /// <summary>
@@ -214,7 +214,10 @@ namespace DominionEnterprises.Mongo
                 }
                 catch (ArgumentOutOfRangeException)
                 {
-                    poll = poll < TimeSpan.Zero ? TimeSpan.Zero : TimeSpan.FromMilliseconds(int.MaxValue);
+                    if (poll < TimeSpan.Zero)
+                        poll = TimeSpan.Zero;
+                    else
+                        poll = TimeSpan.FromMilliseconds(int.MaxValue);
 
                     Thread.Sleep(poll);
                 }
@@ -285,7 +288,7 @@ namespace DominionEnterprises.Mongo
         /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
         public void AckSend(BsonDocument message, BsonDocument payload)
         {
-            AckSend(message, payload, DateTime.UtcNow, 0.0);
+            AckSend(message, payload, DateTime.UtcNow);
         }
 
         /// <summary>
@@ -344,11 +347,7 @@ namespace DominionEnterprises.Mongo
         /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
         public void Requeue(BsonDocument message)
         {
-            if (message == null) throw new ArgumentNullException("message");
-
-            var forRequeue = new BsonDocument(message);
-            forRequeue.Remove("id");
-            AckSend(message, forRequeue, DateTime.UtcNow, 0.0);
+            Requeue(message, DateTime.UtcNow);
         }
 
         /// <summary>
@@ -360,11 +359,7 @@ namespace DominionEnterprises.Mongo
         /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
         public void Requeue(BsonDocument message, DateTime earliestGet)
         {
-            if (message == null) throw new ArgumentNullException("message");
-
-            var forRequeue = new BsonDocument(message);
-            forRequeue.Remove("id");
-            AckSend(message, forRequeue, earliestGet, 0.0);
+            Requeue(message, earliestGet, 0.0);
         }
 
         /// <summary>
@@ -452,7 +447,6 @@ namespace DominionEnterprises.Mongo
                     catch (MongoCommandException)
                     {
                         //this happens when the name was too long
-                        continue;
                     }
 
                     foreach (var existingIndex in collection.GetIndexes())
