@@ -69,6 +69,20 @@ namespace DominionEnterprises.Mongo.Tests
         }
 
         [Test]
+        public void EnsureGetIndexWithNoArgs()
+        {
+            queue.EnsureGetIndex();
+
+            Assert.AreEqual(3, collection.GetIndexes().Count);
+
+            var expectedOne = new IndexKeysDocument { { "running", 1 }, { "priority", 1 }, { "created", 1 }, { "earliestGet", 1 } };
+            Assert.AreEqual(expectedOne, collection.GetIndexes()[1].Key);
+
+            var expectedTwo = new IndexKeysDocument { { "running", 1 }, { "resetTimestamp", 1 } };
+            Assert.AreEqual(expectedTwo, collection.GetIndexes()[2].Key);
+        }
+
+        [Test]
         [ExpectedException(typeof(Exception))]
         public void EnsureGetIndexWithTooLongCollectionName()
         {
@@ -166,7 +180,7 @@ namespace DominionEnterprises.Mongo.Tests
             queue.Send(messageOne);
             queue.Send(new BsonDocument("key", "value"));
 
-            var result = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
+            var result = queue.Get(new QueryDocument(messageOne), TimeSpan.FromHours(1), TimeSpan.MinValue);
             Assert.AreNotEqual(messageOne["id"], result["id"]);
 
             messageOne["id"] = result["id"];
@@ -192,7 +206,7 @@ namespace DominionEnterprises.Mongo.Tests
             queue.Send(new BsonDocument { { "key1", 0 }, { "key2", true } });
             queue.Send(messageTwo);
 
-            var result = queue.Get(new QueryDocument("one.two.three", new BsonDocument("$gt", 4)), TimeSpan.MaxValue, TimeSpan.Zero);
+            var result = queue.Get(new QueryDocument("one.two.three", new BsonDocument("$gt", 4)), TimeSpan.MaxValue, TimeSpan.MaxValue);
 
             messageTwo.InsertAt(0, new BsonElement("id", result["id"]));
             Assert.AreEqual(messageTwo, result);
@@ -307,7 +321,7 @@ namespace DominionEnterprises.Mongo.Tests
             Assert.AreEqual(2, collection.Count(new QueryDocument("running", true)));
 
             //sets resetTimestamp on messageOne
-            queue.Get(new QueryDocument(messageOne), TimeSpan.Zero, TimeSpan.Zero);
+            queue.Get(new QueryDocument(messageOne), TimeSpan.MinValue, TimeSpan.Zero);
 
             //resets and gets messageOne
             Assert.IsNotNull(queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero));

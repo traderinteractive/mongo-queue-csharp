@@ -1,0 +1,11 @@
+{
+    "assemblies": [
+        "DominionEnterprises.Mongo.Tests/bin/Debug/DominionEnterprises.Mongo.dll"
+    ],
+    "methodBodyExcludes": [
+        {
+            "method": "MongoDB.Bson.BsonDocument DominionEnterprises.Mongo.Queue::Get(MongoDB.Driver.QueryDocument,System.TimeSpan,System.TimeSpan,System.TimeSpan)",
+            "lines": ["poll = TimeSpan.FromMilliseconds(int.MaxValue);"]
+        }
+    ]
+}
