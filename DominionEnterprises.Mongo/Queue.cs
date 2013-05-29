@@ -5,7 +5,7 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Reflection;
 
-[assembly: AssemblyVersion("1.0.2.*")]
+[assembly: AssemblyVersion("1.0.3.*")]
 
 namespace DominionEnterprises.Mongo
 {
@@ -445,7 +445,7 @@ namespace DominionEnterprises.Mongo
 
                     try
                     {
-                        collection.EnsureIndex(index, new IndexOptionsDocument("name", name));
+                        collection.EnsureIndex(index, new IndexOptionsDocument { {"name", name }, { "background", true } });
                     }
                     catch (MongoCommandException)
                     {
