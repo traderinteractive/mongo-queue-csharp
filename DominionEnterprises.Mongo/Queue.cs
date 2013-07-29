@@ -4,8 +4,9 @@ using System.Threading;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Reflection;
+using System.Security.Cryptography;
 
-[assembly: AssemblyVersion("1.0.3.*")]
+[assembly: AssemblyVersion("1.1.0.*")]
 
 namespace DominionEnterprises.Mongo
 {
@@ -152,7 +153,7 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
-        /// Get a non running message from queue
+        /// Get a non running message from queue with an approxiate wait.
         /// </summary>
         /// <param name="query">query where top level fields do not contain operators. Lower level fields can however. eg: valid {a: {$gt: 1}, "b.c": 3}, invalid {$and: [{...}, {...}]}</param>
         /// <param name="resetRunning">duration before this message is considered abandoned and will be given with another call to Get()</param>
@@ -162,7 +163,23 @@ namespace DominionEnterprises.Mongo
         /// <exception cref="ArgumentNullException">query is null</exception>
         public BsonDocument Get(QueryDocument query, TimeSpan resetRunning, TimeSpan wait, TimeSpan poll)
         {
-            if (query == null) throw new ArgumentNullException("query");
+            return Get(query, resetRunning, wait, poll, true);
+        }
+
+        /// <summary>
+        /// Get a non running message from queue
+        /// </summary>
+        /// <param name="query">query where top level fields do not contain operators. Lower level fields can however. eg: valid {a: {$gt: 1}, "b.c": 3}, invalid {$and: [{...}, {...}]}</param>
+        /// <param name="resetRunning">duration before this message is considered abandoned and will be given with another call to Get()</param>
+        /// <param name="wait">duration to keep polling before returning null</param>
+        /// <param name="poll">duration between poll attempts</param>
+        /// <param name="approximateWait">whether to fluctuate the wait time randomly by +-10 percent. This ensures Get() calls seperate in time when multiple Queues are used in loops started at the same time</param>
+        /// <returns>message or null</returns>
+        /// <exception cref="ArgumentNullException">query is null</exception>
+        public BsonDocument Get(QueryDocument query, TimeSpan resetRunning, TimeSpan wait, TimeSpan poll, bool approximateWait)
+        {
+            if (query == null)
+                throw new ArgumentNullException ("query");
 
             //reset stuck messages
             collection.Update(
@@ -194,10 +211,17 @@ namespace DominionEnterprises.Mongo
             var end = DateTime.UtcNow;
             try
             {
+                if (approximateWait)
+                    //fluctuate randomly by 10 percent
+                    wait += TimeSpan.FromMilliseconds(wait.TotalMilliseconds * GetRandomDouble(-0.1, 0.1));
+
                 end += wait;
             }
-            catch (ArgumentOutOfRangeException)
+            catch (Exception e)
             {
+                if (!(e is OverflowException) && !(e is ArgumentOutOfRangeException))
+                    throw e;//cant cover
+
                 end = wait > TimeSpan.Zero ? DateTime.MaxValue : DateTime.MinValue;
             }
 
@@ -461,6 +485,27 @@ namespace DominionEnterprises.Mongo
             }
 
             throw new Exception("couldnt create index after 5 attempts");
+        }
+
+        /// <summary>
+        /// Gets a random double between min and max using RNGCryptoServiceProvider
+        /// </summary>
+        /// <returns>
+        /// random double.
+        /// </returns>
+        public static double GetRandomDouble(double min, double max)
+        {
+            if (Double.IsNaN(min)) throw new ArgumentException("min cannot be NaN");
+            if (Double.IsNaN(max)) throw new ArgumentException("max cannot be NaN");
+            if (max < min) throw new ArgumentException("max cannot be less than min");
+
+            var buffer = new byte[8];
+            new RNGCryptoServiceProvider().GetBytes(buffer);
+            var randomULong = BitConverter.ToUInt64(buffer, 0);
+
+            var fraction = (double)randomULong / (double)ulong.MaxValue;
+            var fractionOfNewRange = fraction * (max - min);
+            return min + fractionOfNewRange;
         }
     }
 }
