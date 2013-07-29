@@ -248,6 +248,9 @@ namespace DominionEnterprises.Mongo
 
                     Thread.Sleep(poll);
                 }
+
+                if (DateTime.UtcNow >= end)
+                    return null;
             }
         }
         #endregion

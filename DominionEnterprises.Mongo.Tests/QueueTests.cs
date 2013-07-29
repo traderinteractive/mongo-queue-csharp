@@ -280,9 +280,18 @@ namespace DominionEnterprises.Mongo.Tests
         {
             var start = DateTime.Now;
 
-            queue.Get(new QueryDocument(), TimeSpan.MaxValue, TimeSpan.FromMilliseconds(200), TimeSpan.MinValue, false);
+            queue.Get(new QueryDocument(), TimeSpan.MaxValue, TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(201), false);
 
             var end = DateTime.Now;
+
+            Assert.IsTrue(end - start >= TimeSpan.FromMilliseconds(200));
+            Assert.IsTrue(end - start < TimeSpan.FromMilliseconds(400));
+
+            start = DateTime.Now;
+
+            queue.Get(new QueryDocument(), TimeSpan.MaxValue, TimeSpan.FromMilliseconds(200), TimeSpan.MinValue, false);
+
+            end = DateTime.Now;
 
             Assert.IsTrue(end - start >= TimeSpan.FromMilliseconds(200));
             Assert.IsTrue(end - start < TimeSpan.FromMilliseconds(400));
