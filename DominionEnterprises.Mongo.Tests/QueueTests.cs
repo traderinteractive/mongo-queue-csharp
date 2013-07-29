@@ -206,7 +206,7 @@ namespace DominionEnterprises.Mongo.Tests
             queue.Send(new BsonDocument { { "key1", 0 }, { "key2", true } });
             queue.Send(messageTwo);
 
-            var result = queue.Get(new QueryDocument("one.two.three", new BsonDocument("$gt", 4)), TimeSpan.MaxValue, TimeSpan.MaxValue);
+            var result = queue.Get(new QueryDocument("one.two.three", new BsonDocument("$gt", 4)), TimeSpan.MaxValue, TimeSpan.MaxValue, TimeSpan.MinValue, false);
 
             messageTwo.InsertAt(0, new BsonElement("id", result["id"]));
             Assert.AreEqual(messageTwo, result);
@@ -280,12 +280,44 @@ namespace DominionEnterprises.Mongo.Tests
         {
             var start = DateTime.Now;
 
-            queue.Get(new QueryDocument(), TimeSpan.MaxValue, TimeSpan.FromMilliseconds(200), TimeSpan.MinValue);
+            queue.Get(new QueryDocument(), TimeSpan.MaxValue, TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(201), false);
 
             var end = DateTime.Now;
 
             Assert.IsTrue(end - start >= TimeSpan.FromMilliseconds(200));
             Assert.IsTrue(end - start < TimeSpan.FromMilliseconds(400));
+
+            start = DateTime.Now;
+
+            queue.Get(new QueryDocument(), TimeSpan.MaxValue, TimeSpan.FromMilliseconds(200), TimeSpan.MinValue, false);
+
+            end = DateTime.Now;
+
+            Assert.IsTrue(end - start >= TimeSpan.FromMilliseconds(200));
+            Assert.IsTrue(end - start < TimeSpan.FromMilliseconds(400));
+        }
+
+        [Test]
+        public void GetApproximateWait()
+        {
+            var min = double.MaxValue;
+            var max = double.MinValue;
+            for (var i = 0; i < 10; ++i)
+            {
+                var start = DateTime.Now;
+
+                queue.Get(new QueryDocument(), TimeSpan.MaxValue, TimeSpan.FromMilliseconds(100), TimeSpan.MinValue, true);
+
+                var time = (DateTime.Now - start).TotalMilliseconds;
+                Assert.IsTrue(time >= 80.0);//minux 0.1 of 100
+                Assert.IsTrue(time < 200.0);
+
+                min = Math.Min(min, time);
+                max = Math.Max(max, time);
+            }
+
+            Assert.IsTrue(min < 100.0);
+            Assert.IsTrue(max > 100.0);
         }
 
         [Test]
@@ -526,6 +558,86 @@ namespace DominionEnterprises.Mongo.Tests
         public void SendWithNullMessage()
         {
             queue.Send(null);
+        }
+        #endregion
+
+        #region GetRandomDouble
+        [Test]
+        public void GetRandomDoubleFromZeroToOne()
+        {
+            var count = 1000;
+            var sum = 0.0;
+            for (var i = 0; i < count; ++i)
+            {
+                var randomDouble = Queue.GetRandomDouble(0.0, 1.0);
+                sum += randomDouble;
+                Assert.IsTrue(randomDouble <= 1.0);
+                Assert.IsTrue(randomDouble >= 0.0);
+            }
+
+            var average = sum / (double)count;
+
+            Assert.IsTrue(average >= 0.45);
+            Assert.IsTrue(average <= 0.55);
+        }
+
+        [Test]
+        public void GetRandomDoubleFromNegativeOneToPositiveOne()
+        {
+            var count = 1000;
+            var sum = 0.0;
+            for (var i = 0; i < count; ++i)
+            {
+                var randomDouble = Queue.GetRandomDouble(-1.0, 1.0);
+                sum += randomDouble;
+                Assert.IsTrue(randomDouble <= 1.0);
+                Assert.IsTrue(randomDouble >= -1.0);
+            }
+
+            var average = sum / (double)count;
+
+            Assert.IsTrue(average >= -0.05);
+            Assert.IsTrue(average <= 0.05);
+        }
+
+        [Test]
+        public void GetRandomDoubleFromThreeToFour()
+        {
+            var count = 1000;
+            var sum = 0.0;
+            for (var i = 0; i < count; ++i)
+            {
+                var randomDouble = Queue.GetRandomDouble(3.0, 4.0);
+                sum += randomDouble;
+                Assert.IsTrue(randomDouble <= 4.0);
+                Assert.IsTrue(randomDouble >= 3.0);
+            }
+
+            var average = sum / (double)count;
+
+            Assert.IsTrue(average >= 3.45);
+            Assert.IsTrue(average <= 3.55);
+        }
+
+        [Test]
+        [ExpectedException(typeof(ArgumentException))]
+        public void GetRandomDoubleWithNaNMin()
+        {
+            Queue.GetRandomDouble(double.NaN, 4.0);
+        }
+
+        [Test]
+        [ExpectedException(typeof(ArgumentException))]
+        public void GetRandomDoubleWithNaNMax()
+        {
+            Queue.GetRandomDouble(4.0, double.NaN);
+        }
+
+        [Test]
+        [ExpectedException(typeof(ArgumentException))]
+        public void GetRandomDoubleWithMaxLessThanMin()
+        {
+            Queue.GetRandomDouble(4.0, 3.9);
         }
         #endregion
     }
