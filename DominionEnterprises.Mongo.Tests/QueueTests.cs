@@ -276,6 +276,34 @@ namespace DominionEnterprises.Mongo.Tests
         }
 
         [Test]
+        public void GetWithTimeBasedPriorityAndOldTimestamp()
+        {
+            var messageOne = new BsonDocument { { "key", 0 } };
+            var messageTwo = new BsonDocument { { "key", 1 } };
+            var messageThree = new BsonDocument { { "key", 2 } };
+
+            queue.Send(messageOne);
+            queue.Send(messageTwo);
+            queue.Send(messageThree);
+
+            var resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
+            //ensuring using old timestamp shouldn't affect normal time order of Send()s
+            queue.Requeue(resultTwo, DateTime.UtcNow, 0.0, false);
+
+            var resultOne = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
+            resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
+            var resultThree = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
+
+            messageOne.InsertAt(0, new BsonElement("id", resultOne["id"]));
+            messageTwo.InsertAt(0, new BsonElement("id", resultTwo["id"]));
+            messageThree.InsertAt(0, new BsonElement("id", resultThree["id"]));
+
+            Assert.AreEqual(messageOne, resultOne);
+            Assert.AreEqual(messageTwo, resultTwo);
+            Assert.AreEqual(messageThree, resultThree);
+        }
+
+        [Test]
         public void GetWait()
         {
             var start = DateTime.Now;

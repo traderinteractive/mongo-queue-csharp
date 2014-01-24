@@ -6,7 +6,7 @@ using MongoDB.Driver;
 using System.Reflection;
 using System.Security.Cryptography;
 
-[assembly: AssemblyVersion("1.1.0.*")]
+[assembly: AssemblyVersion("1.2.0.*")]
 
 namespace DominionEnterprises.Mongo
 {
@@ -310,7 +310,7 @@ namespace DominionEnterprises.Mongo
 
         #region AckSend
         /// <summary>
-        /// Ack message and send payload to queue, atomically, with earliestGet as Now and 0.0 priority
+        /// Ack message and send payload to queue, atomically, with earliestGet as Now, 0.0 priority and new timestamp
         /// </summary>
         /// <param name="message">message to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
@@ -322,7 +322,7 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
-        /// Ack message and send payload to queue, atomically, with 0.0 priority
+        /// Ack message and send payload to queue, atomically, with 0.0 priority and new timestamp
         /// </summary>
         /// <param name="message">message to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
@@ -335,7 +335,7 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
-        /// Ack message and send payload to queue, atomically.
+        /// Ack message and send payload to queue, atomically, with new timestamp
         /// </summary>
         /// <param name="message">message to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
@@ -343,8 +343,23 @@ namespace DominionEnterprises.Mongo
         /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
         /// <exception cref="ArgumentNullException">message or payload is null</exception>
         /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
-        /// <exception cref="ArgumentException">priority was NaN</exception>
         public void AckSend(BsonDocument message, BsonDocument payload, DateTime earliestGet, double priority)
+        {
+            AckSend(message, payload, earliestGet, priority, true);
+        }
+
+        /// <summary>
+        /// Ack message and send payload to queue, atomically.
+        /// </summary>
+        /// <param name="message">message to ack received from Get()</param>
+        /// <param name="payload">payload to send</param>
+        /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
+        /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
+        /// <param name="newTimestamp">true to give the payload a new timestamp or false to use given message timestamp</param>
+        /// <exception cref="ArgumentNullException">message or payload is null</exception>
+        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
+        /// <exception cref="ArgumentException">priority was NaN</exception>
+        public void AckSend(BsonDocument message, BsonDocument payload, DateTime earliestGet, double priority, bool newTimestamp)
         {
             if (message == null) throw new ArgumentNullException("message");
             if (payload == null) throw new ArgumentNullException("payload");
@@ -353,24 +368,25 @@ namespace DominionEnterprises.Mongo
             var messageId = message["id"];
             if (messageId.GetType() != typeof(BsonObjectId)) throw new ArgumentException("message id must be a BsonObjectId", "message");
 
-            var newMessage = new UpdateDocument
+            var toSet = new BsonDocument
             {
                 {"payload", payload},
                 {"running", false},
                 {"resetTimestamp", DateTime.MaxValue},
                 {"earliestGet", earliestGet},
                 {"priority", priority},
-                {"created", DateTime.UtcNow},
             };
+            if (newTimestamp)
+                toSet["created"] = DateTime.UtcNow;
 
             //using upsert because if no documents found then the doc was removed (SHOULD ONLY HAPPEN BY SOMEONE MANUALLY) so we can just send
-            collection.Update(new QueryDocument("_id", messageId), newMessage, UpdateFlags.Upsert);
+            collection.Update(new QueryDocument("_id", messageId), new UpdateDocument("$set", toSet), UpdateFlags.Upsert);
         }
         #endregion
 
         #region Requeue
         /// <summary>
-        /// Requeue message with earliestGet as Now and 0.0 priority. Same as AckSend() with the same message.
+        /// Requeue message with earliestGet as Now, 0.0 priority and new timestamp. Same as AckSend() with the same message.
         /// </summary>
         /// <param name="message">message</param>
         /// <exception cref="ArgumentNullException">message is null</exception>
@@ -381,7 +397,7 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
-        /// Requeue message with 0.0 priority. Same as AckSend() with the same message.
+        /// Requeue message with 0.0 priority and new timestamp. Same as AckSend() with the same message.
         /// </summary>
         /// <param name="message">message</param>
         /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
@@ -393,21 +409,34 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
+        /// Requeue message with new timestamp. Same as AckSend() with the same message.
+        /// </summary>
+        /// <param name="message">message</param>
+        /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
+        /// <exception cref="ArgumentNullException">message is null</exception>
+        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
+        public void Requeue(BsonDocument message, DateTime earliestGet, double priority)
+        {
+            Requeue(message, earliestGet, priority, true);
+        }
+
+        /// <summary>
         /// Requeue message. Same as AckSend() with the same message.
         /// </summary>
         /// <param name="message">message</param>
         /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
         /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
+        /// <param name="newTimestamp">true to give the payload a new timestamp or false to use given message timestamp</param>
         /// <exception cref="ArgumentNullException">message is null</exception>
         /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
         /// <exception cref="ArgumentException">priority was NaN</exception>
-        public void Requeue(BsonDocument message, DateTime earliestGet, double priority)
+        public void Requeue(BsonDocument message, DateTime earliestGet, double priority, bool newTimestamp)
         {
             if (message == null) throw new ArgumentNullException("message");
 
             var forRequeue = new BsonDocument(message);
             forRequeue.Remove("id");
-            AckSend(message, forRequeue, earliestGet, priority);
+            AckSend(message, forRequeue, earliestGet, priority, newTimestamp);
         }
         #endregion
 
