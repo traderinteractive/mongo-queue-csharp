@@ -139,6 +139,18 @@ namespace DominionEnterprises.Mongo.Tests
         }
 
         [Test]
+        public void EnsureCountIndexWithPrefixOfPrevious()
+        {
+            queue.EnsureCountIndex(new IndexKeysDocument { { "type", 1 }, { "boo", -1 } }, false);
+            queue.EnsureCountIndex(new IndexKeysDocument { { "type", 1 } }, false);
+
+            Assert.AreEqual(2, collection.GetIndexes().Count);
+
+            var expectedOne = new IndexKeysDocument { { "payload.type", 1 }, { "payload.boo", -1 } };
+            Assert.AreEqual(expectedOne, collection.GetIndexes()[1].Key);
+        }
+
+        [Test]
         [ExpectedException(typeof(ArgumentException))]
         public void EnsureCountIndexWithBadValue()
         {

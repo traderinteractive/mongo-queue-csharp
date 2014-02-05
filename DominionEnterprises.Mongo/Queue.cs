@@ -1,12 +1,13 @@
 using System;
 using System.Configuration;
 using System.Threading;
+using System.Linq;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Reflection;
 using System.Security.Cryptography;
 
-[assembly: AssemblyVersion("1.2.0.*")]
+[assembly: AssemblyVersion("1.2.1.*")]
 
 namespace DominionEnterprises.Mongo
 {
@@ -103,6 +104,7 @@ namespace DominionEnterprises.Mongo
 
         /// <summary>
         /// Ensure index for Count() method
+        /// Is a no-op if the generated index is a prefix of an existing one. If you have a similar EnsureGetIndex call, call it first.
         /// </summary>
         /// <param name="index">fields in Count() call</param>
         /// <param name="includeRunning">whether running was given to Count() or not</param>
@@ -491,6 +493,18 @@ namespace DominionEnterprises.Mongo
 
         private void EnsureIndex(IndexKeysDocument index)
         {
+            //if index is a prefix of any existing index we are good
+            foreach (var existingIndex in collection.GetIndexes())
+            {
+                var names = index.Names;
+                var values = index.Values;
+                var existingNamesPrefix = existingIndex.Key.Names.Take(names.Count());
+                var existingValuesPrefix = existingIndex.Key.Values.Take(values.Count());
+
+                if (Enumerable.SequenceEqual(names, existingNamesPrefix) && Enumerable.SequenceEqual(values, existingValuesPrefix))
+                    return;
+            }
+
             for (var i = 0; i < 5; ++i)
             {
                 for (var name = Guid.NewGuid().ToString(); name.Length > 0; name = name.Substring(0, name.Length - 1))
