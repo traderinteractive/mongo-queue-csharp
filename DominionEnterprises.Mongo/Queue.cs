@@ -353,6 +353,7 @@ namespace DominionEnterprises.Mongo
         /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
         /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
         /// <exception cref="ArgumentNullException">handle or payload is null</exception>
+        /// <exception cref="ArgumentException">priority was NaN</exception>
         public void AckSend(Handle handle, BsonDocument payload, DateTime earliestGet, double priority)
         {
             AckSend(handle, payload, earliestGet, priority, true);
