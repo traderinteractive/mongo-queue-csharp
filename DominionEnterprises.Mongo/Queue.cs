@@ -45,6 +45,18 @@ namespace DominionEnterprises.Mongo
             this.collection = new MongoClient(url).GetServer().GetDatabase(db).GetCollection(collection);
         }
 
+        /// <summary>
+        /// Construct MongoQueue
+        /// </summary>
+        /// <param name="collection">collection</param>
+        /// <exception cref="ArgumentNullException">collection is null</exception>
+        public Queue(MongoCollection collection)
+        {
+            if (collection == null) throw new ArgumentNullException("collection");
+
+            this.collection = collection;
+        }
+
         #region EnsureGetIndex
         /// <summary>
         /// Ensure index for Get() method with no fields before or after sort fields

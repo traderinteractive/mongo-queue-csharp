@@ -47,6 +47,23 @@ namespace DominionEnterprises.Mongo.Tests
         {
             new Queue(string.Empty, string.Empty, null);
         }
+
+        [Test]
+        [ExpectedException(typeof(ArgumentNullException))]
+        public void ConstructWithNullCollectionObject()
+        {
+            new Queue(null);
+        }
+
+        [Test]
+        public void ConstructCollectionObject()
+        {
+            var collection = new MongoClient(ConfigurationManager.AppSettings["mongoQueueUrl"])
+                .GetServer()
+                .GetDatabase(ConfigurationManager.AppSettings["mongoQueueDb"])
+                .GetCollection(ConfigurationManager.AppSettings["mongoQueueCollection"]);
+            new Queue(collection);
+        }
         #endregion
 
         #region EnsureGetIndex
