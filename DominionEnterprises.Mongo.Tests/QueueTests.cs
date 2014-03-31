@@ -491,6 +491,84 @@ namespace DominionEnterprises.Mongo.Tests
         }
         #endregion
 
+        #region AckMulti
+        [Test]
+        public void AckMultiMoreThanBatch()
+        {
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(0);
+                streamTwo.WriteByte(1);
+
+                for (var i = 0; i < Queue.ACK_MULTI_BATCH_SIZE; ++i)
+                {
+                    var message = new BsonDocument("key", i);
+
+                    streamOne.Position = 0;
+                    streamTwo.Position = 0;
+                    queue.Send(message, DateTime.Now, 0.0, new Dictionary<string, Stream>{ { "one", streamOne }, { "two", streamTwo }});
+                }
+            }
+
+            queue.Send(new BsonDocument("key", "value"));
+
+            var handles = new Handle[Queue.ACK_MULTI_BATCH_SIZE];
+            for (var i = 0; i < handles.Length; ++i)
+                handles[i] = queue.Get(new QueryDocument("key", i), TimeSpan.MaxValue, TimeSpan.Zero).Handle;
+
+            Assert.AreEqual(Queue.ACK_MULTI_BATCH_SIZE + 1, collection.Count());
+            Assert.AreEqual(Queue.ACK_MULTI_BATCH_SIZE * 2, gridfs.Files.Count());
+            Assert.AreEqual(Queue.ACK_MULTI_BATCH_SIZE * 2, gridfs.Chunks.Count());
+
+            queue.AckMulti(handles);
+
+            Assert.AreEqual(1, collection.Count());
+            Assert.AreEqual(0, gridfs.Files.Count());
+            Assert.AreEqual(0, gridfs.Chunks.Count());
+        }
+
+        [Test]
+        public void AckMultiLessThanBatch()
+        {
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(0);
+                streamTwo.WriteByte(1);
+                streamOne.Position = 0;
+                streamTwo.Position = 0;
+                queue.Send(new BsonDocument("key", 0), DateTime.Now, 0.0, new Dictionary<string, Stream>{ { "one", streamOne }, { "two", streamTwo }});
+            }
+
+            queue.Send(new BsonDocument("key", 1));
+            queue.Send(new BsonDocument("key", 2));
+
+            var handles = new []
+            {
+                queue.Get(new QueryDocument("key", 0), TimeSpan.MaxValue, TimeSpan.Zero).Handle,
+                queue.Get(new QueryDocument("key", 1), TimeSpan.MaxValue, TimeSpan.Zero).Handle,
+            };
+
+            Assert.AreEqual(3, collection.Count());
+            Assert.AreEqual(2, gridfs.Files.Count());
+            Assert.AreEqual(2, gridfs.Chunks.Count());
+
+            queue.AckMulti(handles);
+
+            Assert.AreEqual(1, collection.Count());
+            Assert.AreEqual(0, gridfs.Files.Count());
+            Assert.AreEqual(0, gridfs.Chunks.Count());
+        }
+
+        [Test]
+        [ExpectedException(typeof(ArgumentNullException))]
+        public void AckMultiWithNullHandles()
+        {
+            queue.AckMulti(null);
+        }
+        #endregion
+
         #region AckSend
         [Test]
         public void AckSend()

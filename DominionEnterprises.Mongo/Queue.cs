@@ -24,6 +24,8 @@ namespace DominionEnterprises.Mongo
     /// </remarks>
     public sealed class Queue
     {
+        internal const int ACK_MULTI_BATCH_SIZE = 1000;
+
         private readonly MongoCollection collection;
         private readonly MongoGridFS gridfs;
 
@@ -343,6 +345,40 @@ namespace DominionEnterprises.Mongo
             {
                 stream.Value.Dispose();
                 gridfs.DeleteById(stream.Key);
+            }
+        }
+
+        /// <summary>
+        /// Acknowledge multiple handles were processed and remove from queue.
+        /// </summary>
+        /// <param name="handles">handles received from Get()</param>
+        /// <exception cref="ArgumentNullException">handles is null</exception>
+        public void AckMulti(IEnumerable<Handle> handles)
+        {
+            if (handles == null) throw new ArgumentNullException("handles");
+
+            var ids = new BsonArray();
+            foreach (var handle in handles)
+            {
+                ids.Add(handle.Id);
+
+                if (ids.Count != ACK_MULTI_BATCH_SIZE)
+                    continue;
+
+                collection.Remove(new QueryDocument("_id", new BsonDocument("$in", ids)));
+                ids.Clear();
+            }
+
+            if (ids.Count > 0)
+                collection.Remove(new QueryDocument("_id", new BsonDocument("$in", ids)));
+
+            foreach (var handle in handles)
+            {
+                foreach (var stream in handle.Streams)
+                {
+                    stream.Value.Dispose();
+                    gridfs.DeleteById(stream.Key);
+                }
             }
         }
 
