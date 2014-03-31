@@ -9,8 +9,9 @@ using System.Security.Cryptography;
 using System.Collections.Generic;
 using MongoDB.Driver.GridFS;
 using System.IO;
+using System.Runtime.CompilerServices;
 
-[assembly: AssemblyVersion("1.2.1.*")]
+[assembly: AssemblyVersion("1.2.1.*"), InternalsVisibleTo("DominionEnterprises.Mongo.Tests")]
 
 namespace DominionEnterprises.Mongo
 {
@@ -562,7 +563,7 @@ namespace DominionEnterprises.Mongo
         /// <returns>
         /// random double.
         /// </returns>
-        public static double GetRandomDouble(double min, double max)
+        internal static double GetRandomDouble(double min, double max)
         {
             if (Double.IsNaN(min)) throw new ArgumentException("min cannot be NaN");
             if (Double.IsNaN(max)) throw new ArgumentException("max cannot be NaN");
