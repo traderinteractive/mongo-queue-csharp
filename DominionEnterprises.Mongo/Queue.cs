@@ -148,7 +148,7 @@ namespace DominionEnterprises.Mongo
         /// <param name="resetRunning">duration before this message is considered abandoned and will be given with another call to Get()</param>
         /// <returns>message or null</returns>
         /// <exception cref="ArgumentNullException">query is null</exception>
-        public BsonDocument Get(QueryDocument query, TimeSpan resetRunning)
+        public Message Get(QueryDocument query, TimeSpan resetRunning)
         {
             return Get(query, resetRunning, TimeSpan.FromSeconds(3));
         }
@@ -161,7 +161,7 @@ namespace DominionEnterprises.Mongo
         /// <param name="wait">duration to keep polling before returning null</param>
         /// <returns>message or null</returns>
         /// <exception cref="ArgumentNullException">query is null</exception>
-        public BsonDocument Get(QueryDocument query, TimeSpan resetRunning, TimeSpan wait)
+        public Message Get(QueryDocument query, TimeSpan resetRunning, TimeSpan wait)
         {
             return Get(query, resetRunning, wait, TimeSpan.FromMilliseconds(200));
         }
@@ -175,7 +175,7 @@ namespace DominionEnterprises.Mongo
         /// <param name="poll">duration between poll attempts</param>
         /// <returns>message or null</returns>
         /// <exception cref="ArgumentNullException">query is null</exception>
-        public BsonDocument Get(QueryDocument query, TimeSpan resetRunning, TimeSpan wait, TimeSpan poll)
+        public Message Get(QueryDocument query, TimeSpan resetRunning, TimeSpan wait, TimeSpan poll)
         {
             return Get(query, resetRunning, wait, poll, true);
         }
@@ -190,7 +190,7 @@ namespace DominionEnterprises.Mongo
         /// <param name="approximateWait">whether to fluctuate the wait time randomly by +-10 percent. This ensures Get() calls seperate in time when multiple Queues are used in loops started at the same time</param>
         /// <returns>message or null</returns>
         /// <exception cref="ArgumentNullException">query is null</exception>
-        public BsonDocument Get(QueryDocument query, TimeSpan resetRunning, TimeSpan wait, TimeSpan poll, bool approximateWait)
+        public Message Get(QueryDocument query, TimeSpan resetRunning, TimeSpan wait, TimeSpan poll, bool approximateWait)
         {
             if (query == null)
                 throw new ArgumentNullException ("query");
@@ -243,8 +243,10 @@ namespace DominionEnterprises.Mongo
             {
                 var message = collection.FindAndModify(builtQuery, sort, update, fields, false, false).ModifiedDocument;
                 if (message != null)
-                    //using merge without overwriting so a possible id in payload doesnt wipe it out the generated one
-                    return new BsonDocument("id", message["_id"]).Merge(message["payload"].AsBsonDocument);
+                {
+                    var handle = new Handle(message["_id"].AsObjectId);
+                    return new Message(handle, message["payload"].AsBsonDocument);
+                }
 
                 if (DateTime.UtcNow >= end)
                     return null;
@@ -308,79 +310,69 @@ namespace DominionEnterprises.Mongo
         #endregion
 
         /// <summary>
-        /// Acknowledge a message was processed and remove from queue.
+        /// Acknowledge a handle was processed and remove from queue.
         /// </summary>
-        /// <param name="message">message received from Get()</param>
-        /// <exception cref="ArgumentNullException">message is null</exception>
-        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
-        public void Ack(BsonDocument message)
+        /// <param name="handle">handle received from Get()</param>
+        /// <exception cref="ArgumentNullException">handle is null</exception>
+        public void Ack(Handle handle)
         {
-            if (message == null) throw new ArgumentNullException("message");
-            var id = message["id"];
-            if (id.GetType() != typeof(BsonObjectId)) throw new ArgumentException("id must be a BsonObjectId", "message");
+            if (handle == null) throw new ArgumentNullException("handle");
 
-            collection.Remove(new QueryDocument("_id", id));
+            collection.Remove(new QueryDocument("_id", handle.Id));
         }
 
         #region AckSend
         /// <summary>
-        /// Ack message and send payload to queue, atomically, with earliestGet as Now, 0.0 priority and new timestamp
+        /// Ack handle and send payload to queue, atomically, with earliestGet as Now, 0.0 priority and new timestamp
         /// </summary>
-        /// <param name="message">message to ack received from Get()</param>
+        /// <param name="handle">handle to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
-        /// <exception cref="ArgumentNullException">message or payload is null</exception>
-        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
-        public void AckSend(BsonDocument message, BsonDocument payload)
+        /// <exception cref="ArgumentNullException">handle or payload is null</exception>
+        public void AckSend(Handle handle, BsonDocument payload)
         {
-            AckSend(message, payload, DateTime.UtcNow);
+            AckSend(handle, payload, DateTime.UtcNow);
         }
 
         /// <summary>
-        /// Ack message and send payload to queue, atomically, with 0.0 priority and new timestamp
+        /// Ack handle and send payload to queue, atomically, with 0.0 priority and new timestamp
         /// </summary>
-        /// <param name="message">message to ack received from Get()</param>
+        /// <param name="handle">handle to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
         /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
-        /// <exception cref="ArgumentNullException">message or payload is null</exception>
-        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
-        public void AckSend(BsonDocument message, BsonDocument payload, DateTime earliestGet)
+        /// <exception cref="ArgumentNullException">handle or payload is null</exception>
+        public void AckSend(Handle handle, BsonDocument payload, DateTime earliestGet)
         {
-            AckSend(message, payload, earliestGet, 0.0);
+            AckSend(handle, payload, earliestGet, 0.0);
         }
 
         /// <summary>
-        /// Ack message and send payload to queue, atomically, with new timestamp
+        /// Ack handle and send payload to queue, atomically, with new timestamp
         /// </summary>
-        /// <param name="message">message to ack received from Get()</param>
+        /// <param name="handle">handle to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
         /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
         /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
-        /// <exception cref="ArgumentNullException">message or payload is null</exception>
-        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
-        public void AckSend(BsonDocument message, BsonDocument payload, DateTime earliestGet, double priority)
+        /// <exception cref="ArgumentNullException">handle or payload is null</exception>
+        public void AckSend(Handle handle, BsonDocument payload, DateTime earliestGet, double priority)
         {
-            AckSend(message, payload, earliestGet, priority, true);
+            AckSend(handle, payload, earliestGet, priority, true);
         }
 
         /// <summary>
-        /// Ack message and send payload to queue, atomically.
+        /// Ack handle and send payload to queue, atomically.
         /// </summary>
-        /// <param name="message">message to ack received from Get()</param>
+        /// <param name="handle">handle to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
         /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
         /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
         /// <param name="newTimestamp">true to give the payload a new timestamp or false to use given message timestamp</param>
-        /// <exception cref="ArgumentNullException">message or payload is null</exception>
-        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
+        /// <exception cref="ArgumentNullException">handle or payload is null</exception>
         /// <exception cref="ArgumentException">priority was NaN</exception>
-        public void AckSend(BsonDocument message, BsonDocument payload, DateTime earliestGet, double priority, bool newTimestamp)
+        public void AckSend(Handle handle, BsonDocument payload, DateTime earliestGet, double priority, bool newTimestamp)
         {
-            if (message == null) throw new ArgumentNullException("message");
+            if (handle == null) throw new ArgumentNullException("handle");
             if (payload == null) throw new ArgumentNullException("payload");
             if (Double.IsNaN(priority)) throw new ArgumentException("priority was NaN", "priority");
-
-            var messageId = message["id"];
-            if (messageId.GetType() != typeof(BsonObjectId)) throw new ArgumentException("message id must be a BsonObjectId", "message");
 
             var toSet = new BsonDocument
             {
@@ -394,63 +386,7 @@ namespace DominionEnterprises.Mongo
                 toSet["created"] = DateTime.UtcNow;
 
             //using upsert because if no documents found then the doc was removed (SHOULD ONLY HAPPEN BY SOMEONE MANUALLY) so we can just send
-            collection.Update(new QueryDocument("_id", messageId), new UpdateDocument("$set", toSet), UpdateFlags.Upsert);
-        }
-        #endregion
-
-        #region Requeue
-        /// <summary>
-        /// Requeue message with earliestGet as Now, 0.0 priority and new timestamp. Same as AckSend() with the same message.
-        /// </summary>
-        /// <param name="message">message</param>
-        /// <exception cref="ArgumentNullException">message is null</exception>
-        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
-        public void Requeue(BsonDocument message)
-        {
-            Requeue(message, DateTime.UtcNow);
-        }
-
-        /// <summary>
-        /// Requeue message with 0.0 priority and new timestamp. Same as AckSend() with the same message.
-        /// </summary>
-        /// <param name="message">message</param>
-        /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
-        /// <exception cref="ArgumentNullException">message is null</exception>
-        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
-        public void Requeue(BsonDocument message, DateTime earliestGet)
-        {
-            Requeue(message, earliestGet, 0.0);
-        }
-
-        /// <summary>
-        /// Requeue message with new timestamp. Same as AckSend() with the same message.
-        /// </summary>
-        /// <param name="message">message</param>
-        /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
-        /// <exception cref="ArgumentNullException">message is null</exception>
-        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
-        public void Requeue(BsonDocument message, DateTime earliestGet, double priority)
-        {
-            Requeue(message, earliestGet, priority, true);
-        }
-
-        /// <summary>
-        /// Requeue message. Same as AckSend() with the same message.
-        /// </summary>
-        /// <param name="message">message</param>
-        /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
-        /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
-        /// <param name="newTimestamp">true to give the payload a new timestamp or false to use given message timestamp</param>
-        /// <exception cref="ArgumentNullException">message is null</exception>
-        /// <exception cref="ArgumentException">message id must be a BsonObjectId</exception>
-        /// <exception cref="ArgumentException">priority was NaN</exception>
-        public void Requeue(BsonDocument message, DateTime earliestGet, double priority, bool newTimestamp)
-        {
-            if (message == null) throw new ArgumentNullException("message");
-
-            var forRequeue = new BsonDocument(message);
-            forRequeue.Remove("id");
-            AckSend(message, forRequeue, earliestGet, priority, newTimestamp);
+            collection.Update(new QueryDocument("_id", handle.Id), new UpdateDocument("$set", toSet), UpdateFlags.Upsert);
         }
         #endregion
 
@@ -564,6 +500,43 @@ namespace DominionEnterprises.Mongo
             var fraction = (double)randomULong / (double)ulong.MaxValue;
             var fractionOfNewRange = fraction * (max - min);
             return min + fractionOfNewRange;
+        }
+    }
+
+    /// <summary>
+    /// Message to be given out of Get()
+    /// </summary>
+    public sealed class Message
+    {
+        public readonly Handle Handle;
+        public readonly BsonDocument Payload;
+
+        /// <summary>
+        /// Construct Message
+        /// </summary>
+        /// <param name="handle">handle</param>
+        /// <param name="payload">payload</param>
+        internal Message(Handle handle, BsonDocument payload)
+        {
+            this.Handle = handle;
+            this.Payload = payload;
+        }
+    }
+
+    /// <summary>
+    /// Message handle to be given to Ack() and AckSend().
+    /// </summary>
+    public sealed class Handle
+    {
+        internal readonly BsonObjectId Id;
+
+        /// <summary>
+        /// Construct Handle
+        /// </summary>
+        /// <param name="id">id</param>
+        internal Handle(BsonObjectId id)
+        {
+            this.Id = id;
         }
     }
 }

@@ -204,16 +204,14 @@ namespace DominionEnterprises.Mongo.Tests
         [Test]
         public void GetByFullQuery()
         {
-            var messageOne = new BsonDocument { { "id", "SHOULD BE REMOVED" }, { "key1", 0 }, { "key2", true } };
+            var messageOne = new BsonDocument { { "id", "SHOULD NOT BE AFFECTED" }, { "key1", 0 }, { "key2", true } };
 
             queue.Send(messageOne);
             queue.Send(new BsonDocument("key", "value"));
 
             var result = queue.Get(new QueryDocument(messageOne), TimeSpan.FromHours(1), TimeSpan.MinValue);
-            Assert.AreNotEqual(messageOne["id"], result["id"]);
 
-            messageOne["id"] = result["id"];
-            Assert.AreEqual(messageOne, result);
+            Assert.AreEqual(messageOne, result.Payload);
         }
 
         [Test]
@@ -237,8 +235,7 @@ namespace DominionEnterprises.Mongo.Tests
 
             var result = queue.Get(new QueryDocument("one.two.three", new BsonDocument("$gt", 4)), TimeSpan.MaxValue, TimeSpan.MaxValue, TimeSpan.MinValue, false);
 
-            messageTwo.InsertAt(0, new BsonElement("id", result["id"]));
-            Assert.AreEqual(messageTwo, result);
+            Assert.AreEqual(messageTwo, result.Payload);
         }
 
         [Test]
@@ -271,13 +268,9 @@ namespace DominionEnterprises.Mongo.Tests
             var resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             var resultThree = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
 
-            messageThree.InsertAt(0, new BsonElement("id", resultOne["id"]));
-            messageTwo.InsertAt(0, new BsonElement("id", resultTwo["id"]));
-            messageOne.InsertAt(0, new BsonElement("id", resultThree["id"]));
-
-            Assert.AreEqual(messageThree, resultOne);
-            Assert.AreEqual(messageTwo, resultTwo);
-            Assert.AreEqual(messageOne, resultThree);
+            Assert.AreEqual(messageThree, resultOne.Payload);
+            Assert.AreEqual(messageTwo, resultTwo.Payload);
+            Assert.AreEqual(messageOne, resultThree.Payload);
         }
 
         [Test]
@@ -295,13 +288,9 @@ namespace DominionEnterprises.Mongo.Tests
             var resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             var resultThree = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
 
-            messageOne.InsertAt(0, new BsonElement("id", resultOne["id"]));
-            messageTwo.InsertAt(0, new BsonElement("id", resultTwo["id"]));
-            messageThree.InsertAt(0, new BsonElement("id", resultThree["id"]));
-
-            Assert.AreEqual(messageOne, resultOne);
-            Assert.AreEqual(messageTwo, resultTwo);
-            Assert.AreEqual(messageThree, resultThree);
+            Assert.AreEqual(messageOne, resultOne.Payload);
+            Assert.AreEqual(messageTwo, resultTwo.Payload);
+            Assert.AreEqual(messageThree, resultThree.Payload);
         }
 
         [Test]
@@ -317,19 +306,15 @@ namespace DominionEnterprises.Mongo.Tests
 
             var resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             //ensuring using old timestamp shouldn't affect normal time order of Send()s
-            queue.Requeue(resultTwo, DateTime.UtcNow, 0.0, false);
+            queue.AckSend(resultTwo.Handle, resultTwo.Payload, DateTime.UtcNow, 0.0, false);
 
             var resultOne = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             var resultThree = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
 
-            messageOne.InsertAt(0, new BsonElement("id", resultOne["id"]));
-            messageTwo.InsertAt(0, new BsonElement("id", resultTwo["id"]));
-            messageThree.InsertAt(0, new BsonElement("id", resultThree["id"]));
-
-            Assert.AreEqual(messageOne, resultOne);
-            Assert.AreEqual(messageTwo, resultTwo);
-            Assert.AreEqual(messageThree, resultThree);
+            Assert.AreEqual(messageOne, resultOne.Payload);
+            Assert.AreEqual(messageTwo, resultTwo.Payload);
+            Assert.AreEqual(messageThree, resultThree.Payload);
         }
 
         [Test]
@@ -466,20 +451,13 @@ namespace DominionEnterprises.Mongo.Tests
             var result = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
             Assert.AreEqual(2, collection.Count());
 
-            queue.Ack(result);
+            queue.Ack(result.Handle);
             Assert.AreEqual(1, collection.Count());
         }
 
         [Test]
-        [ExpectedException(typeof(ArgumentException))]
-        public void AckWithWrongIdType()
-        {
-            queue.Ack(new BsonDocument("id", false));
-        }
-
-        [Test]
         [ExpectedException(typeof(ArgumentNullException))]
-        public void AckWithNullMessage()
+        public void AckWithNullHandle()
         {
             queue.Ack(null);
         }
@@ -498,26 +476,20 @@ namespace DominionEnterprises.Mongo.Tests
             var resultOne = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
             Assert.AreEqual(2, collection.Count());
 
-            queue.AckSend(resultOne, messageThree);
+            queue.AckSend(resultOne.Handle, messageThree);
             Assert.AreEqual(2, collection.Count());
 
             var actual = queue.Get(new QueryDocument("hi", "there"), TimeSpan.MaxValue, TimeSpan.Zero);
-            messageThree.InsertAt(0, new BsonElement("id", resultOne["id"]));
-            Assert.AreEqual(messageThree, actual);
-        }
-
-        [Test()]
-        [ExpectedException(typeof(ArgumentException))]
-        public void AckSendWithWrongIdType()
-        {
-            queue.AckSend(new BsonDocument("id", 5), new BsonDocument("key", "value"));
+            Assert.AreEqual(messageThree, actual.Payload);
         }
 
         [Test]
         [ExpectedException(typeof(ArgumentException))]
         public void AckSendWitNanPriority()
         {
-            queue.AckSend(new BsonDocument("id", BsonObjectId.GenerateNewId()), new BsonDocument("key", "value"), DateTime.Now, Double.NaN);
+            queue.Send(new BsonDocument());
+            var result = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
+            queue.AckSend(result.Handle, new BsonDocument("key", "value"), DateTime.Now, Double.NaN);
         }
 
         [Test]
@@ -531,42 +503,9 @@ namespace DominionEnterprises.Mongo.Tests
         [ExpectedException(typeof(ArgumentNullException))]
         public void AckSendWithNullPayload()
         {
-            queue.AckSend(new BsonDocument("id", BsonObjectId.GenerateNewId()), null);
-        }
-        #endregion
-
-        #region Requeue
-        [Test]
-        public void Requeue()
-        {
-            var messageOne = new BsonDocument { { "key1", 0 }, { "key2", true } };
-
-            queue.Send(messageOne);
-            queue.Send(new BsonDocument("key", "value"));
-
-            var resultBeforeRequeue = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
-
-            queue.Requeue(resultBeforeRequeue);
-            Assert.AreEqual(2, collection.Count());
-
-            var resultAfterRequeue = collection.FindOneAs<BsonDocument>(new QueryDocument("_id", resultBeforeRequeue["id"]));
-            resultBeforeRequeue.Remove("id");
-            Assert.AreEqual(resultBeforeRequeue, resultAfterRequeue["payload"]);
-            Assert.AreEqual(2, collection.Count());
-        }
-
-        [Test]
-        [ExpectedException(typeof(ArgumentException))]
-        public void RequeueWithWrongIdType()
-        {
-            queue.Requeue(new BsonDocument("id", new BsonDocument()));
-        }
-
-        [Test]
-        [ExpectedException(typeof(ArgumentNullException))]
-        public void RequeueWithNullMessage()
-        {
-            queue.Requeue(null);
+            queue.Send(new BsonDocument());
+            var result = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
+            queue.AckSend(result.Handle, null);
         }
         #endregion
 
@@ -594,7 +533,7 @@ namespace DominionEnterprises.Mongo.Tests
 
             var actualCreated = message["created"];
             expected["created"] = actualCreated;
-            actualCreated = actualCreated.AsDateTime;
+            actualCreated = actualCreated.ToUniversalTime();
 
             Assert.IsTrue(actualCreated <= DateTime.UtcNow);
             Assert.IsTrue(actualCreated > DateTime.UtcNow - TimeSpan.FromSeconds(10));
