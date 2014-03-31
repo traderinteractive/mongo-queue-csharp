@@ -6,6 +6,9 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Collections.Generic;
+using MongoDB.Driver.GridFS;
+using System.IO;
 
 [assembly: AssemblyVersion("1.2.1.*")]
 
@@ -21,6 +24,7 @@ namespace DominionEnterprises.Mongo
     public sealed class Queue
     {
         private readonly MongoCollection collection;
+        private readonly MongoGridFS gridfs;
 
         /// <summary>
         /// Construct MongoQueue with url, db name and collection name from app settings keys mongoQueueUrl, mongoQueueDb and mongoQueueCollection
@@ -43,6 +47,7 @@ namespace DominionEnterprises.Mongo
             if (collection == null) throw new ArgumentNullException("collection");
 
             this.collection = new MongoClient(url).GetServer().GetDatabase(db).GetCollection(collection);
+            this.gridfs = this.collection.Database.GetGridFS(MongoGridFSSettings.Defaults);
         }
 
         /// <summary>
@@ -55,6 +60,7 @@ namespace DominionEnterprises.Mongo
             if (collection == null) throw new ArgumentNullException("collection");
 
             this.collection = collection;
+            this.gridfs = collection.Database.GetGridFS(MongoGridFSSettings.Defaults);
         }
 
         #region EnsureGetIndex
@@ -220,7 +226,7 @@ namespace DominionEnterprises.Mongo
 
             var sort = new SortByDocument { { "priority", 1 }, { "created", 1 } };
             var update = new UpdateDocument("$set", new BsonDocument { { "running", true }, { "resetTimestamp", resetTimestamp } });
-            var fields = new FieldsDocument("payload", 1);
+            var fields = new FieldsDocument { { "payload", 1 }, { "streams", 1 } };
 
             var end = DateTime.UtcNow;
             try
@@ -244,8 +250,20 @@ namespace DominionEnterprises.Mongo
                 var message = collection.FindAndModify(builtQuery, sort, update, fields, false, false).ModifiedDocument;
                 if (message != null)
                 {
-                    var handle = new Handle(message["_id"].AsObjectId);
-                    return new Message(handle, message["payload"].AsBsonDocument);
+                    var handleStreams = new List<KeyValuePair<BsonValue, Stream>>();
+                    var messageStreams = new Dictionary<string, Stream>();
+                    foreach (var streamId in message["streams"].AsBsonArray)
+                    {
+                        var fileInfo = gridfs.FindOneById(streamId);
+
+                        var stream = fileInfo.OpenRead();
+
+                        handleStreams.Add(new KeyValuePair<BsonValue, Stream>(streamId, stream));
+                        messageStreams.Add(fileInfo.Name, stream);
+                    }
+
+                    var handle = new Handle(message["_id"].AsObjectId, handleStreams);
+                    return new Message(handle, message["payload"].AsBsonDocument, messageStreams);
                 }
 
                 if (DateTime.UtcNow >= end)
@@ -319,11 +337,17 @@ namespace DominionEnterprises.Mongo
             if (handle == null) throw new ArgumentNullException("handle");
 
             collection.Remove(new QueryDocument("_id", handle.Id));
+
+            foreach (var stream in handle.Streams)
+            {
+                stream.Value.Dispose();
+                gridfs.DeleteById(stream.Key);
+            }
         }
 
         #region AckSend
         /// <summary>
-        /// Ack handle and send payload to queue, atomically, with earliestGet as Now, 0.0 priority and new timestamp
+        /// Ack handle and send payload to queue, atomically, with earliestGet as Now, 0.0 priority, new timestamp and no gridfs streams
         /// </summary>
         /// <param name="handle">handle to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
@@ -334,7 +358,7 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
-        /// Ack handle and send payload to queue, atomically, with 0.0 priority and new timestamp
+        /// Ack handle and send payload to queue, atomically, with 0.0 priority, new timestamp and no gridfs streams
         /// </summary>
         /// <param name="handle">handle to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
@@ -346,7 +370,7 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
-        /// Ack handle and send payload to queue, atomically, with new timestamp
+        /// Ack handle and send payload to queue, atomically, with new timestamp and no gridfs streams
         /// </summary>
         /// <param name="handle">handle to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
@@ -360,7 +384,7 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
-        /// Ack handle and send payload to queue, atomically.
+        /// Ack handle and send payload to queue, atomically, with no gridfs streams
         /// </summary>
         /// <param name="handle">handle to ack received from Get()</param>
         /// <param name="payload">payload to send</param>
@@ -371,9 +395,31 @@ namespace DominionEnterprises.Mongo
         /// <exception cref="ArgumentException">priority was NaN</exception>
         public void AckSend(Handle handle, BsonDocument payload, DateTime earliestGet, double priority, bool newTimestamp)
         {
+            AckSend(handle, payload, earliestGet, priority, newTimestamp, new KeyValuePair<string, Stream>[0]);
+        }
+
+        /// <summary>
+        /// Ack handle and send payload to queue, atomically.
+        /// </summary>
+        /// <param name="handle">handle to ack received from Get()</param>
+        /// <param name="payload">payload to send</param>
+        /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
+        /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
+        /// <param name="newTimestamp">true to give the payload a new timestamp or false to use given message timestamp</param>
+        /// <param name="streams">streams to upload into gridfs</param>
+        /// <exception cref="ArgumentNullException">handle or payload is null</exception>
+        /// <exception cref="ArgumentException">priority was NaN</exception>
+        /// <exception cref="ArgumentNullException">streams is null</exception>
+        public void AckSend(Handle handle, BsonDocument payload, DateTime earliestGet, double priority, bool newTimestamp, IEnumerable<KeyValuePair<string, Stream>> streams)
+        {
             if (handle == null) throw new ArgumentNullException("handle");
             if (payload == null) throw new ArgumentNullException("payload");
             if (Double.IsNaN(priority)) throw new ArgumentException("priority was NaN", "priority");
+            if (streams == null) throw new ArgumentNullException("streams");
+
+            var streamIds = new BsonArray();
+            foreach (var stream in streams)
+                streamIds.Add(gridfs.Upload(stream.Value, stream.Key).Id);
 
             var toSet = new BsonDocument
             {
@@ -382,18 +428,25 @@ namespace DominionEnterprises.Mongo
                 {"resetTimestamp", DateTime.MaxValue},
                 {"earliestGet", earliestGet},
                 {"priority", priority},
+                {"streams", streamIds},
             };
             if (newTimestamp)
                 toSet["created"] = DateTime.UtcNow;
 
             //using upsert because if no documents found then the doc was removed (SHOULD ONLY HAPPEN BY SOMEONE MANUALLY) so we can just send
             collection.Update(new QueryDocument("_id", handle.Id), new UpdateDocument("$set", toSet), UpdateFlags.Upsert);
+
+            foreach (var existingStream in handle.Streams)
+            {
+                existingStream.Value.Dispose();
+                gridfs.DeleteById(existingStream.Key);
+            }
         }
         #endregion
 
         #region Send
         /// <summary>
-        /// Send message to queue with earliestGet as Now and 0.0 priority
+        /// Send message to queue with earliestGet as Now, 0.0 priority and no gridfs streams
         /// </summary>
         /// <param name="payload">payload</param>
         /// <exception cref="ArgumentNullException">payload is null</exception>
@@ -403,7 +456,7 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
-        /// Send message to queue with 0.0 priority
+        /// Send message to queue with 0.0 priority and no gridfs streams
         /// </summary>
         /// <param name="payload">payload</param>
         /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
@@ -414,7 +467,7 @@ namespace DominionEnterprises.Mongo
         }
 
         /// <summary>
-        /// Send message to queue.
+        /// Send message to queue with no gridfs streams
         /// </summary>
         /// <param name="payload">payload</param>
         /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
@@ -423,8 +476,28 @@ namespace DominionEnterprises.Mongo
         /// <exception cref="ArgumentException">priority was NaN</exception>
         public void Send(BsonDocument payload, DateTime earliestGet, double priority)
         {
+            Send(payload, earliestGet, priority, new List<KeyValuePair<string, Stream>>());
+        }
+
+        /// <summary>
+        /// Send message to queue.
+        /// </summary>
+        /// <param name="payload">payload</param>
+        /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
+        /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
+        /// <param name="streams">streams to upload into gridfs</param>
+        /// <exception cref="ArgumentNullException">payload is null</exception>
+        /// <exception cref="ArgumentException">priority was NaN</exception>
+        /// <exception cref="ArgumentNullException">streams is null</exception>
+        public void Send(BsonDocument payload, DateTime earliestGet, double priority, IEnumerable<KeyValuePair<string, Stream>> streams)
+        {
             if (payload == null) throw new ArgumentNullException("payload");
             if (Double.IsNaN(priority)) throw new ArgumentException("priority was NaN", "priority");
+            if (streams == null) throw new ArgumentNullException("streams");
+
+            var streamIds = new BsonArray();
+            foreach (var stream in streams)
+                streamIds.Add(gridfs.Upload(stream.Value, stream.Key).Id);
 
             var message = new BsonDocument
             {
@@ -434,6 +507,7 @@ namespace DominionEnterprises.Mongo
                 {"earliestGet", earliestGet},
                 {"priority", priority},
                 {"created", DateTime.UtcNow},
+                {"streams", streamIds},
             };
 
             collection.Insert(message);
@@ -511,16 +585,19 @@ namespace DominionEnterprises.Mongo
     {
         public readonly Handle Handle;
         public readonly BsonDocument Payload;
+        public readonly IDictionary<string, Stream> Streams;
 
         /// <summary>
         /// Construct Message
         /// </summary>
         /// <param name="handle">handle</param>
         /// <param name="payload">payload</param>
-        internal Message(Handle handle, BsonDocument payload)
+        /// <param name="streams">streams</param>
+        internal Message(Handle handle, BsonDocument payload, IDictionary<string, Stream> streams)
         {
             this.Handle = handle;
             this.Payload = payload;
+            this.Streams = streams;
         }
     }
 
@@ -530,14 +607,17 @@ namespace DominionEnterprises.Mongo
     public sealed class Handle
     {
         internal readonly BsonObjectId Id;
+        internal readonly IEnumerable<KeyValuePair<BsonValue, Stream>> Streams;
 
         /// <summary>
         /// Construct Handle
         /// </summary>
         /// <param name="id">id</param>
-        internal Handle(BsonObjectId id)
+        /// <param name="streams">streams</param>
+        internal Handle(BsonObjectId id, IEnumerable<KeyValuePair<BsonValue, Stream>> streams)
         {
             this.Id = id;
+            this.Streams = streams;
         }
     }
 }
