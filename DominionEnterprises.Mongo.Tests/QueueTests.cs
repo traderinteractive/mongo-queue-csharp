@@ -674,12 +674,31 @@ namespace DominionEnterprises.Mongo.Tests
         }
 
         [Test]
-        [ExpectedException(typeof(ArgumentNullException))]
         public void AckSendWithNullStreams()
         {
-            queue.Send(new BsonDocument());
-            var result = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
-            queue.AckSend(result.Handle, new BsonDocument("key", "value"), DateTime.Now, 0.0, true, null);
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(11);
+                streamTwo.WriteByte(22);
+                streamOne.Position = 0;
+                streamTwo.Position = 0;
+                queue.Send(new BsonDocument(), DateTime.Now, 0.0, new Dictionary<string, Stream> { { "one", streamOne }, { "two", streamTwo } });
+            }
+            var resultOne = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
+
+            var messageTwo = new BsonDocument("key", "value");
+            queue.AckSend(resultOne.Handle, messageTwo, DateTime.Now, 0.0, true, null);
+
+            var resultTwo = queue.Get(new QueryDocument(messageTwo), TimeSpan.MaxValue);
+            Assert.AreEqual(1, collection.Count());
+            Assert.AreEqual(messageTwo, resultTwo.Payload);
+
+            Assert.AreEqual(11, resultTwo.Streams["one"].ReadByte());
+            Assert.AreEqual(22, resultTwo.Streams["two"].ReadByte());
+
+            Assert.AreEqual(2, gridfs.Files.Count());
+            Assert.AreEqual(2, gridfs.Chunks.Count());
         }
         #endregion
 

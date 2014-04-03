@@ -443,20 +443,14 @@ namespace DominionEnterprises.Mongo
         /// <param name="earliestGet">earliest instant that a call to Get() can return message</param>
         /// <param name="priority">priority for order out of Get(). 0 is higher priority than 1</param>
         /// <param name="newTimestamp">true to give the payload a new timestamp or false to use given message timestamp</param>
-        /// <param name="streams">streams to upload into gridfs</param>
+        /// <param name="streams">streams to upload into gridfs or null to forward handle's streams</param>
         /// <exception cref="ArgumentNullException">handle or payload is null</exception>
         /// <exception cref="ArgumentException">priority was NaN</exception>
-        /// <exception cref="ArgumentNullException">streams is null</exception>
         public void AckSend(Handle handle, BsonDocument payload, DateTime earliestGet, double priority, bool newTimestamp, IEnumerable<KeyValuePair<string, Stream>> streams)
         {
             if (handle == null) throw new ArgumentNullException("handle");
             if (payload == null) throw new ArgumentNullException("payload");
             if (Double.IsNaN(priority)) throw new ArgumentException("priority was NaN", "priority");
-            if (streams == null) throw new ArgumentNullException("streams");
-
-            var streamIds = new BsonArray();
-            foreach (var stream in streams)
-                streamIds.Add(gridfs.Upload(stream.Value, stream.Key).Id);
 
             var toSet = new BsonDocument
             {
@@ -465,18 +459,29 @@ namespace DominionEnterprises.Mongo
                 {"resetTimestamp", DateTime.MaxValue},
                 {"earliestGet", earliestGet},
                 {"priority", priority},
-                {"streams", streamIds},
             };
             if (newTimestamp)
                 toSet["created"] = DateTime.UtcNow;
+
+            if (streams != null)
+            {
+                var streamIds = new BsonArray();
+                foreach (var stream in streams)
+                    streamIds.Add(gridfs.Upload(stream.Value, stream.Key).Id);
+
+                toSet["streams"] = streamIds;
+            }
 
             //using upsert because if no documents found then the doc was removed (SHOULD ONLY HAPPEN BY SOMEONE MANUALLY) so we can just send
             collection.Update(new QueryDocument("_id", handle.Id), new UpdateDocument("$set", toSet), UpdateFlags.Upsert);
 
             foreach (var existingStream in handle.Streams)
-            {
                 existingStream.Value.Dispose();
-                gridfs.DeleteById(existingStream.Key);
+
+            if (streams != null)
+            {
+                foreach (var existingStream in handle.Streams)
+                    gridfs.DeleteById(existingStream.Key);
             }
         }
         #endregion
