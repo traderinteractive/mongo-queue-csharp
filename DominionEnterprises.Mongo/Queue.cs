@@ -11,7 +11,7 @@ using MongoDB.Driver.GridFS;
 using System.IO;
 using System.Runtime.CompilerServices;
 
-[assembly: AssemblyVersion("1.2.1.*"), InternalsVisibleTo("DominionEnterprises.Mongo.Tests")]
+[assembly: AssemblyVersion("2.0.0.*"), InternalsVisibleTo("DominionEnterprises.Mongo.Tests")]
 
 namespace DominionEnterprises.Mongo
 {
