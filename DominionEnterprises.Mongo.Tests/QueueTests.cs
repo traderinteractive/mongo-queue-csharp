@@ -4,6 +4,9 @@ using System.Threading;
 using NUnit.Framework;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using MongoDB.Driver.GridFS;
+using System.IO;
+using System.Collections.Generic;
 
 namespace DominionEnterprises.Mongo.Tests
 {
@@ -11,6 +14,7 @@ namespace DominionEnterprises.Mongo.Tests
     public class QueueTests
     {
         private MongoCollection collection;
+        private MongoGridFS gridfs;
         private Queue queue;
 
         [SetUp]
@@ -22,6 +26,10 @@ namespace DominionEnterprises.Mongo.Tests
                 .GetCollection(ConfigurationManager.AppSettings["mongoQueueCollection"]);
 
             collection.Drop();
+
+            gridfs = collection.Database.GetGridFS(MongoGridFSSettings.Defaults);
+            gridfs.Files.Drop();
+            gridfs.Chunks.Drop();
 
             queue = new Queue();
         }
@@ -46,6 +54,23 @@ namespace DominionEnterprises.Mongo.Tests
         public void ConstructWithNullCollection()
         {
             new Queue(string.Empty, string.Empty, null);
+        }
+
+        [Test]
+        [ExpectedException(typeof(ArgumentNullException))]
+        public void ConstructWithNullCollectionObject()
+        {
+            new Queue(null);
+        }
+
+        [Test]
+        public void ConstructCollectionObject()
+        {
+            var collection = new MongoClient(ConfigurationManager.AppSettings["mongoQueueUrl"])
+                .GetServer()
+                .GetDatabase(ConfigurationManager.AppSettings["mongoQueueDb"])
+                .GetCollection(ConfigurationManager.AppSettings["mongoQueueCollection"]);
+            new Queue(collection);
         }
         #endregion
 
@@ -187,16 +212,24 @@ namespace DominionEnterprises.Mongo.Tests
         [Test]
         public void GetByFullQuery()
         {
-            var messageOne = new BsonDocument { { "id", "SHOULD BE REMOVED" }, { "key1", 0 }, { "key2", true } };
+            var messageOne = new BsonDocument { { "id", "SHOULD NOT BE AFFECTED" }, { "key1", 0 }, { "key2", true } };
 
-            queue.Send(messageOne);
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(111);
+                streamTwo.WriteByte(222);
+                streamOne.Position = 0;
+                streamTwo.Position = 0;
+                queue.Send(messageOne, DateTime.Now, 0.0, new Dictionary<string, Stream>{ { "one", streamOne }, { "two", streamTwo } });
+            }
             queue.Send(new BsonDocument("key", "value"));
 
             var result = queue.Get(new QueryDocument(messageOne), TimeSpan.FromHours(1), TimeSpan.MinValue);
-            Assert.AreNotEqual(messageOne["id"], result["id"]);
 
-            messageOne["id"] = result["id"];
-            Assert.AreEqual(messageOne, result);
+            Assert.AreEqual(messageOne, result.Payload);
+            Assert.AreEqual(111, result.Streams["one"].ReadByte());
+            Assert.AreEqual(222, result.Streams["two"].ReadByte());
         }
 
         [Test]
@@ -220,8 +253,7 @@ namespace DominionEnterprises.Mongo.Tests
 
             var result = queue.Get(new QueryDocument("one.two.three", new BsonDocument("$gt", 4)), TimeSpan.MaxValue, TimeSpan.MaxValue, TimeSpan.MinValue, false);
 
-            messageTwo.InsertAt(0, new BsonElement("id", result["id"]));
-            Assert.AreEqual(messageTwo, result);
+            Assert.AreEqual(messageTwo, result.Payload);
         }
 
         [Test]
@@ -254,13 +286,9 @@ namespace DominionEnterprises.Mongo.Tests
             var resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             var resultThree = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
 
-            messageThree.InsertAt(0, new BsonElement("id", resultOne["id"]));
-            messageTwo.InsertAt(0, new BsonElement("id", resultTwo["id"]));
-            messageOne.InsertAt(0, new BsonElement("id", resultThree["id"]));
-
-            Assert.AreEqual(messageThree, resultOne);
-            Assert.AreEqual(messageTwo, resultTwo);
-            Assert.AreEqual(messageOne, resultThree);
+            Assert.AreEqual(messageThree, resultOne.Payload);
+            Assert.AreEqual(messageTwo, resultTwo.Payload);
+            Assert.AreEqual(messageOne, resultThree.Payload);
         }
 
         [Test]
@@ -278,13 +306,9 @@ namespace DominionEnterprises.Mongo.Tests
             var resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             var resultThree = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
 
-            messageOne.InsertAt(0, new BsonElement("id", resultOne["id"]));
-            messageTwo.InsertAt(0, new BsonElement("id", resultTwo["id"]));
-            messageThree.InsertAt(0, new BsonElement("id", resultThree["id"]));
-
-            Assert.AreEqual(messageOne, resultOne);
-            Assert.AreEqual(messageTwo, resultTwo);
-            Assert.AreEqual(messageThree, resultThree);
+            Assert.AreEqual(messageOne, resultOne.Payload);
+            Assert.AreEqual(messageTwo, resultTwo.Payload);
+            Assert.AreEqual(messageThree, resultThree.Payload);
         }
 
         [Test]
@@ -300,19 +324,15 @@ namespace DominionEnterprises.Mongo.Tests
 
             var resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             //ensuring using old timestamp shouldn't affect normal time order of Send()s
-            queue.Requeue(resultTwo, DateTime.UtcNow, 0.0, false);
+            queue.AckSend(resultTwo.Handle, resultTwo.Payload, DateTime.UtcNow, 0.0, false);
 
             var resultOne = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             resultTwo = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
             var resultThree = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
 
-            messageOne.InsertAt(0, new BsonElement("id", resultOne["id"]));
-            messageTwo.InsertAt(0, new BsonElement("id", resultTwo["id"]));
-            messageThree.InsertAt(0, new BsonElement("id", resultThree["id"]));
-
-            Assert.AreEqual(messageOne, resultOne);
-            Assert.AreEqual(messageTwo, resultTwo);
-            Assert.AreEqual(messageThree, resultThree);
+            Assert.AreEqual(messageOne, resultOne.Payload);
+            Assert.AreEqual(messageTwo, resultTwo.Payload);
+            Assert.AreEqual(messageThree, resultThree.Payload);
         }
 
         [Test]
@@ -443,28 +463,109 @@ namespace DominionEnterprises.Mongo.Tests
         {
             var messageOne = new BsonDocument { { "key1", 0 }, { "key2", true } };
 
-            queue.Send(messageOne);
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(111);
+                streamTwo.WriteByte(222);
+                streamOne.Position = 0;
+                streamTwo.Position = 0;
+                queue.Send(messageOne, DateTime.Now, 0.0, new Dictionary<string, Stream>{ { "one", streamOne }, { "two", streamTwo }});
+            }
             queue.Send(new BsonDocument("key", "value"));
 
             var result = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
             Assert.AreEqual(2, collection.Count());
 
-            queue.Ack(result);
+            queue.Ack(result.Handle);
             Assert.AreEqual(1, collection.Count());
-        }
-
-        [Test]
-        [ExpectedException(typeof(ArgumentException))]
-        public void AckWithWrongIdType()
-        {
-            queue.Ack(new BsonDocument("id", false));
+            Assert.AreEqual(0, gridfs.Files.Count());
+            Assert.AreEqual(0, gridfs.Chunks.Count());
         }
 
         [Test]
         [ExpectedException(typeof(ArgumentNullException))]
-        public void AckWithNullMessage()
+        public void AckWithNullHandle()
         {
             queue.Ack(null);
+        }
+        #endregion
+
+        #region AckMulti
+        [Test]
+        public void AckMultiMoreThanBatch()
+        {
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(0);
+                streamTwo.WriteByte(1);
+
+                for (var i = 0; i < Queue.ACK_MULTI_BATCH_SIZE; ++i)
+                {
+                    var message = new BsonDocument("key", i);
+
+                    streamOne.Position = 0;
+                    streamTwo.Position = 0;
+                    queue.Send(message, DateTime.Now, 0.0, new Dictionary<string, Stream>{ { "one", streamOne }, { "two", streamTwo }});
+                }
+            }
+
+            queue.Send(new BsonDocument("key", "value"));
+
+            var handles = new Handle[Queue.ACK_MULTI_BATCH_SIZE];
+            for (var i = 0; i < handles.Length; ++i)
+                handles[i] = queue.Get(new QueryDocument("key", i), TimeSpan.MaxValue, TimeSpan.Zero).Handle;
+
+            Assert.AreEqual(Queue.ACK_MULTI_BATCH_SIZE + 1, collection.Count());
+            Assert.AreEqual(Queue.ACK_MULTI_BATCH_SIZE * 2, gridfs.Files.Count());
+            Assert.AreEqual(Queue.ACK_MULTI_BATCH_SIZE * 2, gridfs.Chunks.Count());
+
+            queue.AckMulti(handles);
+
+            Assert.AreEqual(1, collection.Count());
+            Assert.AreEqual(0, gridfs.Files.Count());
+            Assert.AreEqual(0, gridfs.Chunks.Count());
+        }
+
+        [Test]
+        public void AckMultiLessThanBatch()
+        {
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(0);
+                streamTwo.WriteByte(1);
+                streamOne.Position = 0;
+                streamTwo.Position = 0;
+                queue.Send(new BsonDocument("key", 0), DateTime.Now, 0.0, new Dictionary<string, Stream>{ { "one", streamOne }, { "two", streamTwo }});
+            }
+
+            queue.Send(new BsonDocument("key", 1));
+            queue.Send(new BsonDocument("key", 2));
+
+            var handles = new []
+            {
+                queue.Get(new QueryDocument("key", 0), TimeSpan.MaxValue, TimeSpan.Zero).Handle,
+                queue.Get(new QueryDocument("key", 1), TimeSpan.MaxValue, TimeSpan.Zero).Handle,
+            };
+
+            Assert.AreEqual(3, collection.Count());
+            Assert.AreEqual(2, gridfs.Files.Count());
+            Assert.AreEqual(2, gridfs.Chunks.Count());
+
+            queue.AckMulti(handles);
+
+            Assert.AreEqual(1, collection.Count());
+            Assert.AreEqual(0, gridfs.Files.Count());
+            Assert.AreEqual(0, gridfs.Chunks.Count());
+        }
+
+        [Test]
+        [ExpectedException(typeof(ArgumentNullException))]
+        public void AckMultiWithNullHandles()
+        {
+            queue.AckMulti(null);
         }
         #endregion
 
@@ -475,32 +576,85 @@ namespace DominionEnterprises.Mongo.Tests
             var messageOne = new BsonDocument { { "key1", 0 }, { "key2", true } };
             var messageThree = new BsonDocument { { "hi", "there" }, { "rawr", 2 } };
 
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(11);
+                streamTwo.WriteByte(22);
+                streamOne.Position = 0;
+                streamTwo.Position = 0;
+                queue.Send(messageOne, DateTime.Now, 0.0, new Dictionary<string, Stream> { { "one", streamOne }, { "two", streamTwo } });
+            }
+            queue.Send(new BsonDocument("key", "value"));
+
+            var resultOne = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
+            Assert.AreEqual(2, collection.Count());
+
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(111);
+                streamTwo.WriteByte(222);
+                streamOne.Position = 0;
+                streamTwo.Position = 0;
+                queue.AckSend(resultOne.Handle, messageThree, DateTime.Now, 0.0, true, new Dictionary<string, Stream> { { "one", streamOne }, { "two", streamTwo } });
+            }
+            Assert.AreEqual(2, collection.Count());
+
+            var actual = queue.Get(new QueryDocument("hi", "there"), TimeSpan.MaxValue, TimeSpan.Zero);
+            Assert.AreEqual(messageThree, actual.Payload);
+
+            Assert.AreEqual(111, actual.Streams["one"].ReadByte());
+            Assert.AreEqual(222, actual.Streams["two"].ReadByte());
+
+            Assert.AreEqual(2, gridfs.Files.Count());
+            Assert.AreEqual(2, gridfs.Chunks.Count());
+        }
+
+        [Test]
+        public void AckSendOverloads()
+        {
+            var messageOne = new BsonDocument { { "key1", 0 }, { "key2", true } };
+            var messageThree = new BsonDocument { { "hi", "there" }, { "rawr", 2 } };
+
             queue.Send(messageOne);
             queue.Send(new BsonDocument("key", "value"));
 
             var resultOne = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
             Assert.AreEqual(2, collection.Count());
 
-            queue.AckSend(resultOne, messageThree);
+            queue.AckSend(resultOne.Handle, messageThree);
+
+            var resultTwo = queue.Get(new QueryDocument(messageThree), TimeSpan.MaxValue, TimeSpan.Zero);
+            Assert.AreEqual(messageThree, resultTwo.Payload);
             Assert.AreEqual(2, collection.Count());
 
-            var actual = queue.Get(new QueryDocument("hi", "there"), TimeSpan.MaxValue, TimeSpan.Zero);
-            messageThree.InsertAt(0, new BsonElement("id", resultOne["id"]));
-            Assert.AreEqual(messageThree, actual);
-        }
+            queue.AckSend(resultTwo.Handle, messageOne, DateTime.Now);
 
-        [Test()]
-        [ExpectedException(typeof(ArgumentException))]
-        public void AckSendWithWrongIdType()
-        {
-            queue.AckSend(new BsonDocument("id", 5), new BsonDocument("key", "value"));
+            var resultThree = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
+            Assert.AreEqual(messageOne, resultThree.Payload);
+            Assert.AreEqual(2, collection.Count());
+
+            queue.AckSend(resultThree.Handle, messageThree, DateTime.Now, 0.0);
+
+            var resultFour = queue.Get(new QueryDocument(messageThree), TimeSpan.MaxValue, TimeSpan.Zero);
+            Assert.AreEqual(messageThree, resultFour.Payload);
+            Assert.AreEqual(2, collection.Count());
+
+            queue.AckSend(resultFour.Handle, messageOne, DateTime.Now, 0.0, true);
+
+            var resultFive = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
+            Assert.AreEqual(messageOne, resultFive.Payload);
+            Assert.AreEqual(2, collection.Count());
         }
 
         [Test]
         [ExpectedException(typeof(ArgumentException))]
         public void AckSendWitNanPriority()
         {
-            queue.AckSend(new BsonDocument("id", BsonObjectId.GenerateNewId()), new BsonDocument("key", "value"), DateTime.Now, Double.NaN);
+            queue.Send(new BsonDocument());
+            var result = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
+            queue.AckSend(result.Handle, new BsonDocument("key", "value"), DateTime.Now, Double.NaN);
         }
 
         [Test]
@@ -514,42 +668,37 @@ namespace DominionEnterprises.Mongo.Tests
         [ExpectedException(typeof(ArgumentNullException))]
         public void AckSendWithNullPayload()
         {
-            queue.AckSend(new BsonDocument("id", BsonObjectId.GenerateNewId()), null);
-        }
-        #endregion
-
-        #region Requeue
-        [Test]
-        public void Requeue()
-        {
-            var messageOne = new BsonDocument { { "key1", 0 }, { "key2", true } };
-
-            queue.Send(messageOne);
-            queue.Send(new BsonDocument("key", "value"));
-
-            var resultBeforeRequeue = queue.Get(new QueryDocument(messageOne), TimeSpan.MaxValue, TimeSpan.Zero);
-
-            queue.Requeue(resultBeforeRequeue);
-            Assert.AreEqual(2, collection.Count());
-
-            var resultAfterRequeue = collection.FindOneAs<BsonDocument>(new QueryDocument("_id", resultBeforeRequeue["id"]));
-            resultBeforeRequeue.Remove("id");
-            Assert.AreEqual(resultBeforeRequeue, resultAfterRequeue["payload"]);
-            Assert.AreEqual(2, collection.Count());
+            queue.Send(new BsonDocument());
+            var result = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
+            queue.AckSend(result.Handle, null);
         }
 
         [Test]
-        [ExpectedException(typeof(ArgumentException))]
-        public void RequeueWithWrongIdType()
+        public void AckSendWithNullStreams()
         {
-            queue.Requeue(new BsonDocument("id", new BsonDocument()));
-        }
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                streamOne.WriteByte(11);
+                streamTwo.WriteByte(22);
+                streamOne.Position = 0;
+                streamTwo.Position = 0;
+                queue.Send(new BsonDocument(), DateTime.Now, 0.0, new Dictionary<string, Stream> { { "one", streamOne }, { "two", streamTwo } });
+            }
+            var resultOne = queue.Get(new QueryDocument(), TimeSpan.MaxValue);
 
-        [Test]
-        [ExpectedException(typeof(ArgumentNullException))]
-        public void RequeueWithNullMessage()
-        {
-            queue.Requeue(null);
+            var messageTwo = new BsonDocument("key", "value");
+            queue.AckSend(resultOne.Handle, messageTwo, DateTime.Now, 0.0, true, null);
+
+            var resultTwo = queue.Get(new QueryDocument(messageTwo), TimeSpan.MaxValue);
+            Assert.AreEqual(1, collection.Count());
+            Assert.AreEqual(messageTwo, resultTwo.Payload);
+
+            Assert.AreEqual(11, resultTwo.Streams["one"].ReadByte());
+            Assert.AreEqual(22, resultTwo.Streams["two"].ReadByte());
+
+            Assert.AreEqual(2, gridfs.Files.Count());
+            Assert.AreEqual(2, gridfs.Chunks.Count());
         }
         #endregion
 
@@ -560,7 +709,18 @@ namespace DominionEnterprises.Mongo.Tests
             var now = DateTime.Now;
 
             var payload = new BsonDocument { { "key1", 0 }, { "key2", true } };
-            queue.Send(payload, now, 0.8);
+
+            using (var streamOne = new MemoryStream())
+            using (var streamTwo = new MemoryStream())
+            {
+                gridfs.Upload(streamOne, "one");//making sure same file names are ok as long as their ids are diffrent
+
+                streamOne.WriteByte(111);
+                streamTwo.WriteByte(222);
+                streamOne.Position = 0;
+                streamTwo.Position = 0;
+                queue.Send(payload, now, 0.8, new Dictionary<string, Stream>{ { "one", streamOne }, { "two", streamTwo } });
+            }
 
             var expected = new BsonDocument
             {
@@ -570,6 +730,7 @@ namespace DominionEnterprises.Mongo.Tests
                 { "resetTimestamp", new BsonDateTime(DateTime.MaxValue) },
                 { "earliestGet", new BsonDateTime(now) },
                 { "priority", 0.8 },
+                //streams added below
                 //created added below
             };
 
@@ -577,13 +738,26 @@ namespace DominionEnterprises.Mongo.Tests
 
             var actualCreated = message["created"];
             expected["created"] = actualCreated;
-            actualCreated = actualCreated.AsDateTime;
+            actualCreated = actualCreated.ToUniversalTime();
+
+            var actualStreamIds = message["streams"].AsBsonArray;
+            expected["streams"] = actualStreamIds;
 
             Assert.IsTrue(actualCreated <= DateTime.UtcNow);
             Assert.IsTrue(actualCreated > DateTime.UtcNow - TimeSpan.FromSeconds(10));
 
             expected.InsertAt(0, new BsonElement("_id", message["_id"]));
             Assert.AreEqual(expected, message);
+
+            var fileOne = gridfs.FindOneById(actualStreamIds[0]);
+            Assert.AreEqual("one", fileOne.Name);
+            using (var stream = fileOne.OpenRead())
+                Assert.AreEqual(111, stream.ReadByte());
+
+            var fileTwo = gridfs.FindOneById(actualStreamIds[1]);
+            Assert.AreEqual("two", fileTwo.Name);
+            using (var stream = fileTwo.OpenRead())
+                Assert.AreEqual(222, stream.ReadByte());
         }
 
         [Test]
@@ -598,6 +772,13 @@ namespace DominionEnterprises.Mongo.Tests
         public void SendWithNullMessage()
         {
             queue.Send(null);
+        }
+
+        [Test]
+        [ExpectedException(typeof(ArgumentNullException))]
+        public void SendWithNullStreams()
+        {
+            queue.Send(new BsonDocument("key", "value"), DateTime.Now, 0.0, null);
         }
         #endregion
 

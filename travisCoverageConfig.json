@@ -4,7 +4,7 @@
     ],
     "methodBodyExcludes": [
         {
-            "method": "MongoDB.Bson.BsonDocument DominionEnterprises.Mongo.Queue::Get(MongoDB.Driver.QueryDocument,System.TimeSpan,System.TimeSpan,System.TimeSpan,System.Boolean)",
+            "method": "DominionEnterprises.Mongo.Message DominionEnterprises.Mongo.Queue::Get(MongoDB.Driver.QueryDocument,System.TimeSpan,System.TimeSpan,System.TimeSpan,System.Boolean)",
             "lines": ["poll = TimeSpan.FromMilliseconds(int.MaxValue);", "throw e;//cant cover"]
         }
     ]
