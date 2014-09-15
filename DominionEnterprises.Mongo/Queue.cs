@@ -250,7 +250,9 @@ namespace DominionEnterprises.Mongo
 
             while (true)
             {
-                var message = collection.FindAndModify(builtQuery, sort, update, fields, false, false).ModifiedDocument;
+                var findModifyArgs = new FindAndModifyArgs { Query = builtQuery, SortBy = sort, Update = update, Fields = fields, Upsert = false };
+
+                var message = collection.FindAndModify(findModifyArgs).ModifiedDocument;
                 if (message != null)
                 {
                     var handleStreams = new List<KeyValuePair<BsonValue, Stream>>();
@@ -580,7 +582,7 @@ namespace DominionEnterprises.Mongo
 
                     try
                     {
-                        collection.EnsureIndex(index, new IndexOptionsDocument { {"name", name }, { "background", true } });
+                        collection.CreateIndex(index, new IndexOptionsDocument { {"name", name }, { "background", true } });
                     }
                     catch (MongoCommandException)
                     {
